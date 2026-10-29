@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход в WhatsApp по коду</title>
+<style>
+  :root {
+    --bg: #f3f5f4;
+    --card: #ffffff;
+    --text: #15201b;
+    --muted: #5d6b64;
+    --line: #dbe2de;
+    --accent: #1f9d55;
+    --accent-text: #ffffff;
+    --cell: #eef3f0;
+    --error-bg: #fdecec;
+    --error-text: #a12626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1613;
+      --card: #172019;
+      --text: #e8efe9;
+      --muted: #93a39a;
+      --line: #28352d;
+      --accent: #2fbf6c;
+      --accent-text: #08130c;
+      --cell: #1f2b23;
+      --error-bg: #3a1d1d;
+      --error-text: #f2a3a3;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 28px 24px;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+  input {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 17px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .hint { margin: 6px 0 16px; font-size: 13px; color: var(--muted); }
+  button {
+    width: 100%;
+    padding: 13px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-text);
+    background: var(--accent);
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  button.ghost {
+    margin-top: 10px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line);
+  }
+  .error {
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    font-size: 14px;
+    color: var(--error-text);
+    background: var(--error-bg);
+    border-radius: 10px;
+  }
+  .code {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin: 20px 0;
+  }
+  .cell {
+    width: 34px;
+    padding: 10px 0;
+    text-align: center;
+    font: 700 22px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--cell);
+    border-radius: 8px;
+  }
+  .dash { width: 10px; text-align: center; color: var(--muted); }
+  ol { margin: 0 0 18px; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  ol li { margin-bottom: 4px; }
+  .center { text-align: center; }
+  .ok { font-size: 44px; margin-bottom: 4px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card">
+
+  <section data-view="phone">
+    <h1>Вход в WhatsApp</h1>
+    <p>Введите номер телефона, и мы покажем код для привязки устройства.</p>
+    <div id="error" class="error" hidden></div>
+    <form id="phoneForm">
+      <label for="phone">Номер телефона</label>
+      <input id="phone" type="tel" inputmode="numeric" autocomplete="tel"
+             placeholder="380501234567" required>
+      <div class="hint">Только цифры, с кодом страны, без «+».</div>
+      <button id="submitBtn" type="submit">Получить код</button>
+    </form>
+  </section>
+
+  <section data-view="wait" hidden>
+    <div class="center">
+      <h1>Готовим код…</h1>
+      <p>Запускаем WhatsApp, это может занять до минуты.</p>
+    </div>
+  </section>
+
+  <section data-view="code" hidden>
+    <h1 class="center">Введите код на телефоне</h1>
+    <div class="code" id="codeBox" aria-label="Код привязки"></div>
+    <ol>
+      <li>Откройте WhatsApp на телефоне.</li>
+      <li>Настройки → Связанные устройства → Привязка устройства.</li>
+      <li>Выберите «Связать по номеру телефона» и введите код.</li>
+    </ol>
+    <button id="copyBtn" type="button">Скопировать код</button>
+    <button id="cancelBtn" class="ghost" type="button">Отмена</button>
+  </section>
+
+  <section data-view="done" hidden>
+    <div class="center">
+      <div class="ok">✅</div>
+      <h1>Авторизация выполнена</h1>
+      <p id="doneText">WhatsApp подключён.</p>
+    </div>
+    <button id="logoutBtn" class="ghost" type="button">Выйти из аккаунта</button>
+  </section>
+
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  async function api(path, body) {
+    const options = body
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      : { method: 'POST' };
+    const res = await fetch(path, options);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
+    return data;
+  }
+
+  function showView(name) {
+    document.querySelectorAll('[data-view]').forEach((el) => {
+      el.hidden = el.dataset.view !== name;
+    });
+  }
+
+  function showError(text) {
+    const box = $('error');
+    box.textContent = text || '';
+    box.hidden = !text;
+  }
+
+  let currentCode = '';
+
+  function renderCode(raw) {
+    const code = String(raw).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    currentCode = code;
+    const box = $('codeBox');
+    box.textContent = '';
+    [...code].forEach((ch, i) => {
+      if (i === 4) {
+        const dash = document.createElement('span');
+        dash.className = 'dash';
+        dash.textContent = '–';
+        box.appendChild(dash);
+      }
+      const cell = document.createElement('span');
+      cell.className = 'cell';
+      cell.textContent = ch;
+      box.appendChild(cell);
+    });
+  }
+
+  function render(state) {
+    switch (state.status) {
+      case 'starting':
+        showView('wait');
+        break;
+      case 'code':
+        renderCode(state.code);
+        showView('code');
+        break;
+      case 'authenticated':
+      case 'ready':
+        $('doneText').textContent =
+          state.status === 'ready' ? 'WhatsApp подключён и готов к работе.' : 'Завершаем подключение…';
+        showView('done');
+        break;
+      default:
+        // не стираем ошибку проверки номера, пока пользователь её не исправил
+        if (state.error) showError(state.error);
+        showView('phone');
+    }
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/status');
+      render(await res.json());
+    } catch (_) {
+      // сервер временно недоступен, попробуем ещё раз
+    }
+  }
+
+  $('phoneForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showError('');
+    $('submitBtn').disabled = true;
+    try {
+      render(await api('/api/start', { phone: $('phone').value }));
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      $('submitBtn').disabled = false;
+    }
+  });
+
+  $('copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(currentCode);
+      $('copyBtn').textContent = 'Скопировано';
+      setTimeout(() => { $('copyBtn').textContent = 'Скопировать код'; }, 1500);
+    } catch (_) {
+      $('copyBtn').textContent = 'Не удалось скопировать';
+    }
+  });
+
+  async function resetSession() {
+    showError('');
+    try {
+      render(await api('/api/logout'));
+    } catch (err) {
+      showError(err.message);
+      showView('phone');
+    }
+  }
+
+  $('cancelBtn').addEventListener('click', resetSession);
+  $('logoutBtn').addEventListener('click', resetSession);
+
+  poll();
+  setInterval(poll, 2000);
+</script>
+</body>
+</html>
